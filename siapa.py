@@ -1,137 +1,120 @@
-import os
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
-
 import pandas as pd
-import matplotlib
-# use non-GUI backend for automated runs/tests
-matplotlib.use('Agg')
+import numpy as np
 import matplotlib.pyplot as plt
-import statsmodels.formula.api as smf
+import seaborn as sns
+from datetime import datetime
+from sklearn.preprocessing import MinMaxScaler
+from statsmodels.tsa.stattools import ccf
 
+#1 load data dulu
+sales = pd.read.csv('C:\Users\ASUS\Visual Studio\dana\lomba\sales.csv')
+products = pd.read.csv('C:\Users\ASUS\Visual Studio\dana\lomba\products.csv')
+marketing = pd.read.csv('C:\Users\ASUS\Visual Studio\dana\lomba\marketing.csv')
+reviews = pd.read.csv('C:\Users\ASUS\Visual Studio\dana\lomba\reviews.csv')
 
-def get_data_paths():
-    base = os.path.dirname(__file__)
-    data_dir = os.path.join(base, 'fmcg_personalcare')
-    return {
-        'sales': os.path.join(data_dir, 'sales.csv'),
-        'products': os.path.join(data_dir, 'products.csv'),
-        'marketing': os.path.join(data_dir, 'marketing.csv')
-    }
+#2 data prepraration
+#convert kolom tanggal
+sales['date'] = pd.to_datetime(sales['date'], format='%Y-%m-%d')
+products['launch_date'] = pd.to_datetime(products['launch_date'], format='%Y-%m-%d')
 
+#merge data
+sales_full = sales.merge(products, on='product_id', how='left')
 
-def read_data(paths):
-    sales = pd.read_csv(paths['sales'], parse_dates=['date'])
-    products = pd.read_csv(paths['products'], parse_dates=['launch_date'])
-    marketing = pd.read_csv(paths['marketing'], parse_dates=['start_date', 'end_date'])
-    return sales, products, marketing
+#aggregate daily sales per product
+daily_sales = (sales_full.groupby(['date', 'product_id'])
+               .agg({'units_sold':'sum', 'revenue':'sum', 'avg_price':'mean'})
+               .reset_index()
+)
 
+#add launch info
+daily_sales = daily_sales.merge(products[['product_id','brand','launch_date']], on='product_id', how='left')
+daily_sales['days_since_launch'] = (daily_sales['date'] - daily_sales['launch_date']).dt.days
 
-def process_data(sales_df, product_df, marketing_df):
-    # merge product info
-    data_merged = pd.merge(sales_df, product_df, on='product_id', how='left')
+#3 visual check, sales overtime
+plt.figure(figsize=(12,6))
+for pid in daily_sales['product_id'].unique():
+    temp = daily_sales[daily_sales['product_id']==pid]
+    plt.plot(temp['date'], temp['revenue'], label=pid, alpha=0.7)
+plt.title("Revenue Trend per Product")
+plt.legend(bbox_to_anchor=(1.05,1), loc='upper left')
+plt.tight_layout()
+plt.show()
 
-    # weekly aggregation using Grouper
-    sales_weekly = (
-        data_merged
-        .groupby(['product_id', pd.Grouper(key='date', freq='W')])
-        .agg(
-            total_units_sold=('units_sold', 'sum'),
-            avg_discount=('discount_pct', 'mean'),
-            total_revenue=('revenue', 'sum')
-        )
-        .reset_index()
-        .rename(columns={'date': 'week'})
-    )
+#4 cannibalization logic
+#hipotesis: Jika produk baru launching, maka produk lamaa akan mengalami penurunan sales
 
-    # attach product metadata
-    sales_weekly = pd.merge(sales_weekly, product_df, on='product_id', how='left')
+#step1
+brands = products['brand'].unique()
+cannibal_effect = []
 
-    # unroll marketing campaigns into weekly spends
-    all_weeks = []
-    for _, row in marketing_df.iterrows():
-        # ensure dates are timestamps
-        start = row['start_date']
-        end = row['end_date']
-        if pd.isna(start) or pd.isna(end) or end < start:
-            continue
-        campaign_weeks = pd.date_range(start=start, end=end, freq='W')
-        if len(campaign_weeks) == 0:
-            continue
-        spend_per_week = row.get('spend_idr', 0) / len(campaign_weeks)
-        for wk in campaign_weeks:
-            all_weeks.append({'product_id': row['product_id'], 'week': wk, 'spend_per_week': spend_per_week})
+for brand in brands:
+    brand_products = products[products['brand']==brand].sort_values('launch_date')
+    brand_sales = daily_sales[daily_sales['product_id']==brand]
+    
+    for i in range(1, len(brand_products)):
+        new_product = brand_products.iloc[i]
+        old_product = brand_products.iloc[i-1]
+        
+        #extract overlap period
+        launch_date = new_product['launch_date']
+        window_start = launch_date - pd.Timedelta(days=180)
+        window_end = launch_date + pd.Timedelta(days=180)
+        
+        old_sales = brand_sales[(brand_sales['product_id']==old_product['product_id']) &
+                                (brand_sales['date'].between(window_start, window_end))]
+        new_sales = brand_sales[(brand_sales['product_id']==new_product['product_id']) &
+                                (brand_sales['date'].between(window_start, window_end))]
+        
+        #aggregate weekly revenue
+        old_weekly = old_sales.resample('W-Mon', on='date')['revenue'].sum()
+        new_weekly = new_sales.resample('W-Mon', on='date')['revenue'].sum()
+        
+        #align index
+        alligned = pd.DataFrame({'old': old_weekly, 'new': new_weekly}).fillna()
+        
+        #compute cross-correlation
+        corr = np.corrcoef(alligned['old'], alligned['new'])[0,1]
+        
+        cannibal_effect.append({
+            'brand': brand,
+            'old_product': old_product['product_name'],
+            'new_product': new_product['product_name'],
+            'correlation': corr
+        })
+        
+cannibal_df = pd.DataFrame(cannibal_effect)
+print("\n=== Cannibalization Analysis Results ===")
+print(cannibal_df.sort_values('correlation').head(10))
 
-    if all_weeks:
-        marketing_unrolled_df = pd.DataFrame(all_weeks)
-        marketing_weekly = marketing_unrolled_df.groupby(['product_id', 'week']).agg(
-            total_spend=('spend_per_week', 'sum')
-        ).reset_index()
-    else:
-        marketing_weekly = pd.DataFrame(columns=['product_id', 'week', 'total_spend'])
+#5 visualize correlation
+plt.figure(figsize=(8,5))
+sns.barplot(data=cannibal_df.sort_values('correlation'), x='brand', y='correlation', hue='brand', dodge=False)
+plt.axvline(0, color='red', linestyle='--')
+plt.title("Cannibalization Correlation per Brand")
+plt.xlabel("Correlation Coefficient (negative = potential cannibalization)")
+plt.tight_layout()
+plt.show()
 
-    # merge sales and marketing weekly
-    df_final = pd.merge(sales_weekly, marketing_weekly, on=['product_id', 'week'], how='left')
-    df_final['total_spend'] = df_final['total_spend'].fillna(0)
+#6 insight (sentiment & marketing support)
+#sentiment
+if 'rating' in reviews.columns:
+    sentiment_summary = reviews.groupby('product_id')['rating'].mean().reset_index()
+    cannibal_df = cannibal_df.merge(products[['product_id', 'product_name', 'brand']],
+                                    left_on='new_product', right_on='product_name', how='left')
+    cannibal_df = cannibal_df.merge(sentiment_summary, on='product_id', how='left')
+    print("\n=== Average Sentiment for new Products in Cannibalization Pairs ===")
+    print(cannibal_df[['brand', 'new_product', 'correlation', 'rating']])
+    
+#7 marketing spend effect
+marketing_summary = marketing.groupby('product_id')['spend'].sum().reset_index()
+cannibal_df = cannibal_df.merge(products[['product_id','product_name']], 
+                                left_on='new_product', right_on='product_name', how='left')
+cannibal_df = cannibal_df.merge(marketing_summary, on='product_id', how='left')
 
-    return df_final, sales_weekly, marketing_weekly
-
-
-def run_analysis(df_final, sales_weekly, product_df, prod_a='PC001', prod_b='PC013'):
-    # choose products
-    # find launch dates safely
-    row_b = product_df[product_df['product_id'] == prod_b]
-    row_a = product_df[product_df['product_id'] == prod_a]
-    if row_b.empty or row_a.empty:
-        raise ValueError(f"Product IDs not found: {prod_a if row_a.empty else ''} {prod_b if row_b.empty else ''}")
-    launch_date_B = row_b['launch_date'].iloc[0]
-    launch_date_A = row_a['launch_date'].iloc[0]
-
-    # prepare series for chosen product A
-    df_korban = df_final[df_final['product_id'] == prod_a].sort_values(by='week')
-
-    # Safe plotting (backend is Agg) - create and save a figure instead of show
-    fig, ax1 = plt.subplots(figsize=(10, 5))
-    ax1.plot(df_korban['week'], df_korban['total_units_sold'], color='tab:blue', label=f'Penjualan {prod_a}')
-    ax1.axvline(launch_date_B, color='red', linestyle='--', label=f'Peluncuran {prod_b}')
-    ax2 = ax1.twinx()
-    ax2.plot(df_korban['week'], df_korban['total_spend'], color='tab:green', linestyle=':', alpha=0.7, label='Marketing Spend')
-    fig.tight_layout()
-    fig.savefig(os.path.join(os.path.dirname(__file__), 'analysis_plot.png'))
-    plt.close(fig)
-
-    # modeling
-    df_model = df_korban.copy()
-    df_model['post_launch_B'] = (df_model['week'] >= launch_date_B).astype(int)
-    df_model['time_since_start'] = (df_model['week'] - df_model['week'].min()).dt.days
-    df_model = df_model.rename(columns={'total_units_sold': 'units', 'avg_discount': 'discount'})
-    df_model = df_model.dropna(subset=['units', 'discount', 'total_spend', 'post_launch_B', 'time_since_start'])
-
-    if len(df_model) < 5:
-        raise ValueError('Not enough data points for modeling after cleaning.')
-
-    model_formula = 'units ~ discount + total_spend + time_since_start + post_launch_B'
-    model = smf.ols(formula=model_formula, data=df_model)
-    results = model.fit()
-    return results, df_korban
-
-
-def main():
-    paths = get_data_paths()
-    sales_df, product_df, marketing_df = read_data(paths)
-    df_final, sales_weekly, marketing_weekly = process_data(sales_df, product_df, marketing_df)
-
-    print('sales_weekly shape:', sales_weekly.shape)
-    print('marketing_weekly shape:', marketing_weekly.shape)
-    print('df_final shape:', df_final.shape)
-
-    # run analysis for default products; wrap in try to show friendly error
-    try:
-        results, df_korban = run_analysis(df_final, sales_weekly, product_df)
-        print(results.summary())
-    except Exception as e:
-        print('Analysis skipped or failed:', type(e).__name__, e)
-
-
-if __name__ == '__main__':
-    main()
+plt.figure(figsize=(7,5))
+sns.scatterplot(data=cannibal_df, x='spend', y='corr', hue='brand')
+plt.title("Marketing Spend vs Cannibalization Correlation")
+plt.xlabel("Total Marketing Spend (IDR)")
+plt.ylabel("Correlation (negative = stronger cannibalization)")
+plt.tight_layout()
+plt.show()
