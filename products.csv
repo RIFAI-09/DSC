@@ -1,0 +1,16 @@
+product_id,product_name,brand,type,size_ml,base_price,launch_date
+PC001,Sunsilk Smooth & Shine Shampoo 340ml,Sunsilk,Shampoo,340,32000,2020-02-15
+PC002,Sunsilk Black Shine Conditioner 340ml,Sunsilk,Conditioner,340,33000,2020-06-10
+PC003,Lifebuoy Total10 Body Wash 400ml,Lifebuoy,Body Wash,400,28000,2020-03-20
+PC004,Lifebuoy Mild Care Handwash 200ml,Lifebuoy,Handwash,200,25000,2021-05-01
+PC005,Dove Deep Moisture Lotion 200ml,Dove,Lotion,200,35000,2021-11-12
+PC006,Dove Intense Repair Shampoo 340ml,Dove,Shampoo,340,36000,2022-01-25
+PC007,Rexona Men Ice Cool Spray 150ml,Rexona,Deodorant,150,40000,2022-06-02
+PC008,Rexona Women Shower Clean Roll-on 50ml,Rexona,Deodorant,50,28000,2023-02-14
+PC009,Clear Cool Sport Menthol 340ml,Clear,Shampoo,340,34000,2020-09-20
+PC010,Love Beauty & Planet Coconut Water Shampoo 400ml,Love Beauty & Planet,Shampoo,400,42000,2023-03-18
+PC011,Ponds Bright Beauty Facial Foam 100g,Ponds,Facial Foam,100,35000,2022-04-10
+PC012,Vaseline Intensive Care Lotion 200ml,Vaseline,Lotion,200,30000,2021-08-05
+PC013,Sunsilk Anti Hairfall Shampoo 340ml,Sunsilk,Shampoo,340,32000,2024-01-15
+PC014,Dove Men+Care Body Wash 400ml,Dove,Body Wash,400,38000,2024-06-01
+PC015,Lifebuoy Hand Sanitizer Gel 50ml,Lifebuoy,Sanitizer,50,18000,2020-12-01
