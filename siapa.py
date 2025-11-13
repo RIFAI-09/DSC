@@ -7,10 +7,10 @@ from sklearn.preprocessing import MinMaxScaler
 from statsmodels.tsa.stattools import ccf
 
 #1 load data dulu
-sales = pd.read.csv('C:\Users\ASUS\Visual Studio\dana\lomba\sales.csv')
-products = pd.read.csv('C:\Users\ASUS\Visual Studio\dana\lomba\products.csv')
-marketing = pd.read.csv('C:\Users\ASUS\Visual Studio\dana\lomba\marketing.csv')
-reviews = pd.read.csv('C:\Users\ASUS\Visual Studio\dana\lomba\reviews.csv')
+sales = pd.read.csv('sales.csv')
+products = pd.read.csv('products.csv')
+marketing = pd.read.csv('marketing.csv')
+reviews = pd.read.csv('reviews.csv')
 
 #2 data prepraration
 #convert kolom tanggal
